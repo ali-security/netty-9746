@@ -1,0 +1,92 @@
+name: Build, Test and Upload Artifact
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Skip tests (sets SEAL_SKIP_TESTS=1)"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build, Test & Upload (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build builder image from Dockerfile
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: netty-builder:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+
+      - name: Prepare build output directory
+        run: |
+          mkdir -p "${{ github.workspace }}/build_output"
+          mkdir -p "${HOME}/.m2"
+
+      - name: Build & test inside the container
+        env:
+          SEAL_SKIP_TESTS: ${{ github.event.inputs.skip_tests == 'true' && '1' || '0' }}
+        run: |
+          docker run --rm \
+            -e SEAL_SKIP_TESTS \
+            -v "${{ github.workspace }}:/src" \
+            -v "${{ github.workspace }}/build_output:/build_output" \
+            -v "${HOME}/.m2:/root/.m2" \
+            netty-builder:latest
+
+      - name: Normalize file ownership
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}/build_output" "${HOME}/.m2" || true
+
+      - name: List produced artifacts
+        run: ls -lh "${{ github.workspace }}/build_output/"
+
+      - name: Collect Surefire test reports
+        if: always()
+        run: |
+          mkdir -p surefire-reports
+          find . -type d -name surefire-reports -not -path "./surefire-reports/*" \
+            -exec sh -c 'module="$(dirname "$1" | sed "s|^\./||;s|/target$||;s|/|_|g")"; cp -r "$1" "surefire-reports/${module}" 2>/dev/null || true' _ {} \;
+          ls -la surefire-reports || true
+
+      - name: Upload Netty JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netty-jar
+          path: build_output/*.jar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: surefire-reports
+          if-no-files-found: ignore
+          retention-days: 1
