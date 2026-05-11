@@ -35,13 +35,10 @@
  */
 package io.netty.handler.codec.http.websocketx;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.CorruptedFrameException;
-
 /**
- * Checks UTF8 bytes for validity
+ * Checks UTF8 bytes for validity before converting it into a string
  */
-final class Utf8Validator {
+final class UTF8Output {
     private static final int UTF8_ACCEPT = 0;
     private static final int UTF8_REJECT = 12;
 
@@ -49,12 +46,12 @@ final class Utf8Validator {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
-            7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-            7, 7, 7, 8, 8, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-            2, 2, 2, 2, 2, 2, 10, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 11, 6, 6, 6, 5, 8,
-            8, 8, 8, 8, 8, 8, 8, 8, 8, 8 };
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 7, 7, 7, 7,
+            7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8,
+            8, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 10, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 11, 6, 6, 6, 5, 8, 8, 8, 8, 8,
+            8, 8, 8, 8, 8, 8 };
 
     private static final byte[] STATES = { 0, 12, 24, 36, 60, 96, 84, 12, 12, 12, 48, 72, 12, 12,
             12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 0, 12, 12, 12, 12, 12, 0, 12, 0, 12, 12,
@@ -66,51 +63,39 @@ final class Utf8Validator {
     @SuppressWarnings("RedundantFieldInitialization")
     private int state = UTF8_ACCEPT;
     private int codep;
-    private boolean checking;
 
-    public void check(ByteBuf buffer) {
-        checking = true;
-        for (int i = buffer.readerIndex(); i < buffer.writerIndex(); i++) {
-            byte b = buffer.getByte(i);
-            byte type = TYPES[b & 0xFF];
+    private final StringBuilder stringBuilder;
 
-            codep = state != UTF8_ACCEPT ? b & 0x3f | codep << 6 : 0xff >> type & b;
-
-            state = STATES[state + type];
-
-            if (state == UTF8_REJECT) {
-                checking = false;
-                throw new CorruptedFrameException("bytes are not UTF-8");
-            }
-        }
+    UTF8Output(byte[] bytes) {
+        stringBuilder = new StringBuilder(bytes.length);
+        write(bytes);
     }
 
-    public void check(byte[] bytes) {
-        checking = true;
+    public void write(byte[] bytes) {
         for (byte b : bytes) {
-            byte type = TYPES[b & 0xFF];
-
-            codep = state != UTF8_ACCEPT ? b & 0x3f | codep << 6 : 0xff >> type & b;
-
-            state = STATES[state + type];
-
-            if (state == UTF8_REJECT) {
-                checking = false;
-                throw new CorruptedFrameException("bytes are not UTF-8");
-            }
+            write(b);
         }
     }
 
-    public void finish() {
-        checking = false;
-        codep = 0;
+    public void write(int b) {
+        byte type = TYPES[b & 0xFF];
+
+        codep = state != UTF8_ACCEPT ? b & 0x3f | codep << 6 : 0xff >> type & b;
+
+        state = STATES[state + type];
+
+        if (state == UTF8_ACCEPT) {
+            stringBuilder.append((char) codep);
+        } else if (state == UTF8_REJECT) {
+            throw new UTF8Exception("bytes are not UTF-8");
+        }
+    }
+
+    @Override
+    public String toString() {
         if (state != UTF8_ACCEPT) {
-            state = UTF8_ACCEPT;
-            throw new CorruptedFrameException("bytes are not UTF-8");
+            throw new UTF8Exception("bytes are not UTF-8");
         }
-    }
-
-    public boolean isChecking() {
-        return checking;
+        return stringBuilder.toString();
     }
 }

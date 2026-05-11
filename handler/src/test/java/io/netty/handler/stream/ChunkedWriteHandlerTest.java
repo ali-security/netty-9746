@@ -24,7 +24,6 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.embedded.EmbeddedByteChannel;
 import io.netty.channel.embedded.EmbeddedMessageChannel;
 import io.netty.util.CharsetUtil;
-import io.netty.util.internal.PlatformDependent;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -46,7 +45,7 @@ public class ChunkedWriteHandlerTest {
 
         FileOutputStream out = null;
         try {
-            TMP = PlatformDependent.createTempFile("netty-chunk-", ".tmp", null);
+            TMP = File.createTempFile("netty-chunk-", ".tmp");
             TMP.deleteOnExit();
             out = new FileOutputStream(TMP);
             out.write(BYTES);
