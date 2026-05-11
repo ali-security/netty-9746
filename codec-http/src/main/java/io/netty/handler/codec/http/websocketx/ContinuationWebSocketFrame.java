@@ -25,8 +25,6 @@ import io.netty.util.CharsetUtil;
  */
 public class ContinuationWebSocketFrame extends WebSocketFrame {
 
-    private String aggregatedText;
-
     /**
      * Creates a new empty continuation frame.
      */
@@ -58,27 +56,6 @@ public class ContinuationWebSocketFrame extends WebSocketFrame {
         setFinalFragment(finalFragment);
         setRsv(rsv);
         setBinaryData(binaryData);
-    }
-
-    /**
-     * Creates a new continuation frame with the specified binary data
-     *
-     * @param finalFragment
-     *            flag indicating if this frame is the final fragment
-     * @param rsv
-     *            reserved bits used for protocol extensions
-     * @param binaryData
-     *            the content of the frame.
-     * @param aggregatedText
-     *            Aggregated text set by decoder on the final continuation frame of a fragmented
-     *            text message
-     */
-    public ContinuationWebSocketFrame(
-            boolean finalFragment, int rsv, ByteBuf binaryData, String aggregatedText) {
-        setFinalFragment(finalFragment);
-        setRsv(rsv);
-        setBinaryData(binaryData);
-        this.aggregatedText = aggregatedText;
     }
 
     /**
@@ -124,17 +101,6 @@ public class ContinuationWebSocketFrame extends WebSocketFrame {
     @Override
     public String toString() {
         return getClass().getSimpleName() + "(data: " + getBinaryData() + ')';
-    }
-
-    /**
-     * Aggregated text returned by decoder on the final continuation frame of a fragmented text message
-     */
-    public String getAggregatedText() {
-        return aggregatedText;
-    }
-
-    public void setAggregatedText(String aggregatedText) {
-        this.aggregatedText = aggregatedText;
     }
 
 }

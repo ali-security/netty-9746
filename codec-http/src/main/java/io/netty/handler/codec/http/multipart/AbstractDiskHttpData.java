@@ -17,6 +17,7 @@ package io.netty.handler.codec.http.multipart;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpConstants;
+import io.netty.util.internal.PlatformDependent;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -82,9 +83,9 @@ public abstract class AbstractDiskHttpData extends AbstractHttpData {
         File tmpFile;
         if (getBaseDirectory() == null) {
             // create a temporary file
-            tmpFile = File.createTempFile(getPrefix(), newpostfix);
+            tmpFile = PlatformDependent.createTempFile(getPrefix(), newpostfix, null);
         } else {
-            tmpFile = File.createTempFile(getPrefix(), newpostfix, new File(
+            tmpFile = PlatformDependent.createTempFile(getPrefix(), newpostfix, new File(
                     getBaseDirectory()));
         }
         if (deleteOnExit()) {

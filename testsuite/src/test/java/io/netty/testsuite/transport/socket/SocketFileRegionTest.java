@@ -23,6 +23,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundByteHandlerAdapter;
 import io.netty.channel.DefaultFileRegion;
+import io.netty.util.internal.PlatformDependent;
 import org.junit.Test;
 
 import java.io.File;
@@ -50,7 +51,7 @@ public class SocketFileRegionTest extends AbstractSocketTest {
     }
 
     public void testFileRegion(ServerBootstrap sb, Bootstrap cb) throws Throwable {
-        File file = File.createTempFile("netty-", ".tmp");
+        File file = PlatformDependent.createTempFile("netty-", ".tmp", null);
         file.deleteOnExit();
 
         FileOutputStream out = new FileOutputStream(file);

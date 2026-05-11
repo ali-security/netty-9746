@@ -36,6 +36,7 @@ import io.netty.handler.codec.http.multipart.HttpPostRequestEncoder.ErrorDataEnc
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 import io.netty.logging.InternalLogger;
 import io.netty.logging.InternalLoggerFactory;
+import io.netty.util.internal.PlatformDependent;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -367,7 +368,7 @@ public class HttpUploadClient {
         } else {
             baseUri = "http://localhost:8080";
 
-            File f = File.createTempFile("upload", ".txt");
+            File f = PlatformDependent.createTempFile("upload", ".txt", null);
             BufferedWriter bw = new BufferedWriter(new FileWriter(f));
             bw.write("Some text data in a file to be posted");
             bw.close();

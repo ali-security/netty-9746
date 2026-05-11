@@ -103,6 +103,7 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
     private final int maxInitialLineLength;
     private final int maxHeaderSize;
     private final int maxChunkSize;
+    private final boolean allowDuplicateContentLengths;
     private HttpMessage message;
     private ByteBuf content;
     private long chunkSize;
@@ -136,7 +137,7 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
      * {@code maxChunkSize (8192)}.
      */
     protected HttpMessageDecoder() {
-        this(4096, 8192, 8192);
+        this(4096, 8192, 8192, false);
     }
 
     /**
@@ -144,6 +145,15 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
      */
     protected HttpMessageDecoder(
             int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
+        this(maxInitialLineLength, maxHeaderSize, maxChunkSize, false);
+    }
+
+    /**
+     * Creates a new instance with the specified parameters.
+     */
+    protected HttpMessageDecoder(
+            int maxInitialLineLength, int maxHeaderSize, int maxChunkSize,
+            boolean allowDuplicateContentLengths) {
 
         super(State.SKIP_CONTROL_CHARS);
 
@@ -165,6 +175,7 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
         this.maxInitialLineLength = maxInitialLineLength;
         this.maxHeaderSize = maxHeaderSize;
         this.maxChunkSize = maxChunkSize;
+        this.allowDuplicateContentLengths = allowDuplicateContentLengths;
     }
 
     @Override
@@ -561,12 +572,44 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
 
         State nextState;
 
+        List<String> contentLengthHeaders = message.getHeaders(HttpHeaders.Names.CONTENT_LENGTH);
+        if (!contentLengthHeaders.isEmpty()) {
+            HttpVersion version = message.getProtocolVersion();
+            boolean isHttp10OrEarlier = version.getMajorVersion() < 1 || (version.getMajorVersion() == 1
+                    && version.getMinorVersion() == 0);
+            // Guard against multiple Content-Length headers as stated in
+            // https://tools.ietf.org/html/rfc7230#section-3.3.2:
+            long contentLength = HttpCodecUtil.normalizeAndGetContentLength(contentLengthHeaders,
+                    isHttp10OrEarlier, allowDuplicateContentLengths);
+            if (contentLength != -1) {
+                message.setHeader(HttpHeaders.Names.CONTENT_LENGTH, contentLength);
+            }
+        }
+
         if (isContentAlwaysEmpty(message)) {
             message.setTransferEncoding(HttpTransferEncoding.SINGLE);
             nextState = State.SKIP_CONTROL_CHARS;
         } else if (HttpCodecUtil.isTransferEncodingChunked(message)) {
             message.setTransferEncoding(HttpTransferEncoding.CHUNKED);
             nextState = State.READ_CHUNK_SIZE;
+            // See https://tools.ietf.org/html/rfc7230#section-3.3.3
+            //
+            //       If a message is received with both a Transfer-Encoding and a
+            //       Content-Length header field, the Transfer-Encoding overrides the
+            //       Content-Length.  Such a message might indicate an attempt to
+            //       perform request smuggling (Section 9.5) or response splitting
+            //       (Section 9.4) and ought to be handled as an error.  A sender MUST
+            //       remove the received Content-Length field prior to forwarding such
+            //       a message downstream.
+            //
+            // This is also what http_parser does:
+            // https://github.com/nodejs/http-parser/blob/v2.9.2/http_parser.c#L1769
+            if (message.containsHeader(HttpHeaders.Names.CONTENT_LENGTH) &&
+                    HttpVersion.HTTP_1_1.equals(message.getProtocolVersion())) {
+                throw new IllegalArgumentException(
+                        "Both 'Content-Length: " + message.getHeader(HttpHeaders.Names.CONTENT_LENGTH)
+                        + "' and 'Transfer-Encoding: chunked' found");
+            }
         } else if (HttpHeaders.getContentLength(message, -1) >= 0) {
             nextState = State.READ_FIXED_LENGTH_CONTENT;
         } else {
@@ -733,6 +776,11 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
             if (ch == ':' || Character.isWhitespace(ch)) {
                 break;
             }
+        }
+
+        if (nameEnd == length) {
+            // There was no colon present at all.
+            throw new IllegalArgumentException("No colon found");
         }
 
         for (colonEnd = nameEnd; colonEnd < length; colonEnd ++) {
