@@ -308,4 +308,45 @@ public class HttpMessageDecoderTest {
                              (e.getCause() != null && e.getCause() instanceof IllegalArgumentException));
         }
     }
+
+    // ---------------------------------------------------------------------
+    // RFC 7230 section 3.2.4: no whitespace is allowed between the header
+    // field-name and the colon. For requests this must be rejected as a
+    // 400 Bad Request; for responses the whitespace is silently skipped so
+    // that interop with non-compliant servers is preserved.
+    // Backport of netty/netty@39cafcb (issue #9571 / PR #9585).
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void testWhitespaceInRequestHeaderName() {
+        EmbeddedByteChannel channel = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Transfer-Encoding : chunked\r\n" +
+                "Host: netty.io\n\r\n";
+
+        channel.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.US_ASCII));
+        HttpRequest request = (HttpRequest) channel.readInbound();
+        Assert.assertNotNull(request);
+        DecoderResult dr = request.getDecoderResult();
+        Assert.assertFalse(dr.isSuccess());
+        Assert.assertTrue(dr.cause() instanceof IllegalArgumentException);
+        Assert.assertFalse(channel.finish());
+    }
+
+    @Test
+    public void testWhitespaceInResponseHeaderName() {
+        EmbeddedByteChannel channel = new EmbeddedByteChannel(new HttpResponseDecoder());
+        String responseStr = "HTTP/1.1 200 OK\r\n" +
+                "Transfer-Encoding : chunked\r\n" +
+                "Host: netty.io\n\r\n";
+
+        channel.writeInbound(Unpooled.copiedBuffer(responseStr, CharsetUtil.US_ASCII));
+        HttpResponse response = (HttpResponse) channel.readInbound();
+        Assert.assertNotNull(response);
+        Assert.assertTrue(response.getDecoderResult().isSuccess());
+        Assert.assertEquals(HttpHeaders.Values.CHUNKED,
+                response.getHeader(HttpHeaders.Names.TRANSFER_ENCODING));
+        Assert.assertEquals("netty.io", response.getHeader(HttpHeaders.Names.HOST));
+        Assert.assertFalse(channel.finish());
+    }
 }
