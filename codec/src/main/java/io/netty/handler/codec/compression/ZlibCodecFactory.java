@@ -82,12 +82,24 @@ public final class ZlibCodecFactory {
         return new JZlibDecoder();
     }
 
+    public static ZlibDecoder newZlibDecoder(int maxAllocation) {
+        return new JZlibDecoder(maxAllocation);
+    }
+
     public static ZlibDecoder newZlibDecoder(ZlibWrapper wrapper) {
         return new JZlibDecoder(wrapper);
     }
 
+    public static ZlibDecoder newZlibDecoder(ZlibWrapper wrapper, int maxAllocation) {
+        return new JZlibDecoder(wrapper, maxAllocation);
+    }
+
     public static ZlibDecoder newZlibDecoder(byte[] dictionary) {
         return new JZlibDecoder(dictionary);
+    }
+
+    public static ZlibDecoder newZlibDecoder(byte[] dictionary, int maxAllocation) {
+        return new JZlibDecoder(dictionary, maxAllocation);
     }
 
     private ZlibCodecFactory() {

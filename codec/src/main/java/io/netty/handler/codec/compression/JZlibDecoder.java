@@ -16,6 +16,8 @@
 package io.netty.handler.codec.compression;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.UnsafeByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.internal.jzlib.JZlib;
 import io.netty.util.internal.jzlib.ZStream;
@@ -32,7 +34,21 @@ public class JZlibDecoder extends ZlibDecoder {
      * @throws CompressionException if failed to initialize zlib
      */
     public JZlibDecoder() {
-        this(ZlibWrapper.ZLIB);
+        this(ZlibWrapper.ZLIB, 0);
+    }
+
+    /**
+     * Creates a new instance with the default wrapper ({@link ZlibWrapper#ZLIB})
+     * and specified maximum buffer allocation.
+     *
+     * @param maxAllocation
+     *          Maximum size of the decompression buffer. Must be &gt;= 0.
+     *          If zero, maximum size is decided by the {@link ByteBufAllocator}.
+     *
+     * @throws CompressionException if failed to initialize zlib
+     */
+    public JZlibDecoder(int maxAllocation) {
+        this(ZlibWrapper.ZLIB, maxAllocation);
     }
 
     /**
@@ -41,6 +57,21 @@ public class JZlibDecoder extends ZlibDecoder {
      * @throws CompressionException if failed to initialize zlib
      */
     public JZlibDecoder(ZlibWrapper wrapper) {
+        this(wrapper, 0);
+    }
+
+    /**
+     * Creates a new instance with the specified wrapper and maximum buffer allocation.
+     *
+     * @param maxAllocation
+     *          Maximum size of the decompression buffer. Must be &gt;= 0.
+     *          If zero, maximum size is decided by the {@link ByteBufAllocator}.
+     *
+     * @throws CompressionException if failed to initialize zlib
+     */
+    public JZlibDecoder(ZlibWrapper wrapper, int maxAllocation) {
+        super(maxAllocation);
+
         if (wrapper == null) {
             throw new NullPointerException("wrapper");
         }
@@ -59,6 +90,23 @@ public class JZlibDecoder extends ZlibDecoder {
      * @throws CompressionException if failed to initialize zlib
      */
     public JZlibDecoder(byte[] dictionary) {
+        this(dictionary, 0);
+    }
+
+    /**
+     * Creates a new instance with the specified preset dictionary and maximum buffer allocation.
+     * The wrapper is always {@link ZlibWrapper#ZLIB} because it is the only format that
+     * supports the preset dictionary.
+     *
+     * @param maxAllocation
+     *          Maximum size of the decompression buffer. Must be &gt;= 0.
+     *          If zero, maximum size is decided by the {@link ByteBufAllocator}.
+     *
+     * @throws CompressionException if failed to initialize zlib
+     */
+    public JZlibDecoder(byte[] dictionary, int maxAllocation) {
+        super(maxAllocation);
+
         if (dictionary == null) {
             throw new NullPointerException("dictionary");
         }
@@ -89,6 +137,7 @@ public class JZlibDecoder extends ZlibDecoder {
             return;
         }
 
+        ByteBuf decompressed = null;
         try {
             // Configure input.
             int inputLength = in.readableBytes();
@@ -105,34 +154,22 @@ public class JZlibDecoder extends ZlibDecoder {
             }
             int oldNextInIndex = z.next_in_index;
 
-            // Configure output.
-            int maxOutputLength = inputLength << 1;
-            boolean outHasArray = out.hasArray();
-            if (!outHasArray) {
-                z.next_out = new byte[maxOutputLength];
-            }
+            // Configure output - use an internal decompression buffer so we can enforce maxAllocation.
+            decompressed = prepareDecompressBuffer(ctx, null, inputLength << 1);
 
             try {
                 loop: for (;;) {
-                    z.avail_out = maxOutputLength;
-                    if (outHasArray) {
-                        out.ensureWritableBytes(maxOutputLength);
-                        z.next_out = out.array();
-                        z.next_out_index = out.arrayOffset() + out.writerIndex();
-                    } else {
-                        z.next_out_index = 0;
-                    }
+                    decompressed = prepareDecompressBuffer(ctx, decompressed, z.avail_in << 1);
+                    z.avail_out = decompressed.writableBytes();
+                    z.next_out = decompressed.array();
+                    z.next_out_index = decompressed.arrayOffset() + decompressed.writerIndex();
                     int oldNextOutIndex = z.next_out_index;
 
-                    // Decompress 'in' into 'out'
+                    // Decompress 'in' into 'decompressed'
                     int resultCode = z.inflate(JZlib.Z_SYNC_FLUSH);
                     int outputLength = z.next_out_index - oldNextOutIndex;
                     if (outputLength > 0) {
-                        if (outHasArray) {
-                            out.writerIndex(out.writerIndex() + outputLength);
-                        } else {
-                            out.writeBytes(z.next_out, 0, outputLength);
-                        }
+                        decompressed.writerIndex(decompressed.writerIndex() + outputLength);
                     }
 
                     switch (resultCode) {
@@ -161,12 +198,19 @@ public class JZlibDecoder extends ZlibDecoder {
                         ZlibUtil.fail(z, "decompression failure", resultCode);
                     }
                 }
+
+                if (decompressed.readable()) {
+                    out.writeBytes(decompressed);
+                }
             } finally {
                 if (inHasArray) {
                     in.skipBytes(z.next_in_index - oldNextInIndex);
                 }
             }
         } finally {
+            if (decompressed != null) {
+                ((UnsafeByteBuf) decompressed).free();
+            }
             // Deference the external references explicitly to tell the VM that
             // the allocated byte arrays are temporary so that the call stack
             // can be utilized.
@@ -174,5 +218,10 @@ public class JZlibDecoder extends ZlibDecoder {
             z.next_in = null;
             z.next_out = null;
         }
+    }
+
+    @Override
+    protected void decompressionBufferExhausted(ByteBuf buffer) {
+        finished = true;
     }
 }
