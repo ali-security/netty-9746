@@ -89,7 +89,8 @@ public abstract class AbstractDiskHttpData extends AbstractHttpData {
                     getBaseDirectory()));
         }
         if (deleteOnExit()) {
-            tmpFile.deleteOnExit();
+            // See https://github.com/netty/netty/issues/10351
+            DeleteFileOnExitHook.add(tmpFile.getPath());
         }
         return tmpFile;
     }
@@ -213,10 +214,21 @@ public abstract class AbstractDiskHttpData extends AbstractHttpData {
 
     @Override
     public void delete() {
-        if (! isRenamed) {
-            if (file != null) {
-                file.delete();
+        if (!isRenamed) {
+            String filePath = null;
+
+            if (file != null && file.exists()) {
+                filePath = file.getPath();
+                if (!file.delete()) {
+                    filePath = null;
+                }
             }
+
+            // If you turn on deleteOnExit make sure it is executed.
+            if (deleteOnExit() && filePath != null) {
+                DeleteFileOnExitHook.remove(filePath);
+            }
+            file = null;
         }
     }
 
