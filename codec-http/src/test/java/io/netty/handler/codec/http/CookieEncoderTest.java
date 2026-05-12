@@ -123,4 +123,47 @@ public class CookieEncoderTest {
         assertNotNull(encodedCookie1);
         assertNotNull(encodedCookie2);
     }
+
+    // ---------------------------------------------------------------------
+    // Backport of netty/netty@d98b21b ("Validate cookie name and value
+    // characters"): the {@link ClientCookieEncoder} must reject cookies whose
+    // value contains characters that are forbidden by RFC 6265, otherwise an
+    // attacker could smuggle additional attributes (such as HttpOnly) through
+    // the encoded header value.
+    // ---------------------------------------------------------------------
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testEncodingClientCookieWithSemicolonInValue() {
+        // A semicolon would terminate the cookie value and let any text after
+        // it be parsed as a separate cookie attribute on the server side.
+        Cookie cookie = new DefaultCookie("foo", "bar; HttpOnly");
+        ClientCookieEncoder.encode(cookie);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testEncodingClientCookieWithCommaInValue() {
+        Cookie cookie = new DefaultCookie("foo", "bar,baz");
+        ClientCookieEncoder.encode(cookie);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testEncodingClientCookieWithControlCharInValue() {
+        Cookie cookie = new DefaultCookie("foo", "bar\rbaz");
+        ClientCookieEncoder.encode(cookie);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testEncodingClientCookieWithUnbalancedQuotesInValue() {
+        Cookie cookie = new DefaultCookie("foo", "\"unbalanced");
+        ClientCookieEncoder.encode(cookie);
+    }
+
+    @Test
+    public void testEncodingClientCookieWithBalancedQuotesInValueIsAllowed() {
+        Cookie cookie = new DefaultCookie("foo", "\"bar\"");
+        // Should not throw; the wrapping quotes are stripped before
+        // validation, leaving only the safe inner value.
+        String encoded = ClientCookieEncoder.encode(cookie);
+        assertNotNull(encoded);
+    }
 }
