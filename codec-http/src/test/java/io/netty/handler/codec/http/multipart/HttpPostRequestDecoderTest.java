@@ -43,11 +43,11 @@ public class HttpPostRequestDecoderTest {
     public void testTooManyFormFieldsPostStandardDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
 
-        int maxFields = 8;
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
+        HttpPostRequestDecoder decoder =
+                new HttpPostRequestDecoder(req, HttpPostRequestDecoder.DEFAULT_MAX_FIELDS, -1);
 
         StringBuilder body = new StringBuilder();
-        for (int i = 0; i <= maxFields; i++) {
+        for (int i = 0; i <= HttpPostRequestDecoder.DEFAULT_MAX_FIELDS; i++) {
             body.append("k").append(i).append("=v&");
         }
 
@@ -63,11 +63,11 @@ public class HttpPostRequestDecoderTest {
     public void testStandardDecoderAcceptsUpToMaxFields() throws Exception {
         HttpRequest req = newChunkedRequest();
 
-        int maxFields = 8;
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
+        HttpPostRequestDecoder decoder =
+                new HttpPostRequestDecoder(req, HttpPostRequestDecoder.DEFAULT_MAX_FIELDS, -1);
 
         StringBuilder body = new StringBuilder();
-        for (int i = 0; i < maxFields; i++) {
+        for (int i = 0; i < HttpPostRequestDecoder.DEFAULT_MAX_FIELDS; i++) {
             body.append("k").append(i).append("=v&");
         }
 
@@ -79,17 +79,17 @@ public class HttpPostRequestDecoderTest {
         HttpRequest req = newChunkedRequest();
         req.addHeader("Content-Type", "multipart/form-data; boundary=be38b42a9ad2713f");
 
-        int maxFields = 4;
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
+        HttpPostRequestDecoder decoder =
+                new HttpPostRequestDecoder(req, HttpPostRequestDecoder.DEFAULT_MAX_FIELDS, -1);
 
         StringBuilder body = new StringBuilder();
         body.append("--be38b42a9ad2713f\r\n");
-        for (int i = 0; i <= maxFields; i++) {
+        for (int i = 0; i <= HttpPostRequestDecoder.DEFAULT_MAX_FIELDS; i++) {
             body.append("Content-Disposition: form-data; name=\"k").append(i).append("\"\r\n")
                 .append("\r\n")
                 .append("v").append(i).append("\r\n")
                 .append("--be38b42a9ad2713f");
-            if (i == maxFields) {
+            if (i == HttpPostRequestDecoder.DEFAULT_MAX_FIELDS) {
                 body.append("--\r\n");
             } else {
                 body.append("\r\n");
@@ -108,10 +108,12 @@ public class HttpPostRequestDecoderTest {
     public void testTooLongFormFieldStandardDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
 
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, -1, 16 * 1024);
+        HttpPostRequestDecoder decoder =
+                new HttpPostRequestDecoder(req, -1, HttpPostRequestDecoder.DEFAULT_MAX_BUFFERED_BYTES);
 
         try {
-            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(new byte[16 * 1024 + 1])));
+            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(
+                    new byte[HttpPostRequestDecoder.DEFAULT_MAX_BUFFERED_BYTES + 1])));
             fail();
         } catch (ErrorDataDecoderException e) {
             assertEquals(TooLongFormFieldException.class, e.getClass());
@@ -132,10 +134,12 @@ public class HttpPostRequestDecoderTest {
         HttpRequest req = newChunkedRequest();
         req.addHeader("Content-Type", "multipart/form-data; boundary=be38b42a9ad2713f");
 
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, -1, 16 * 1024);
+        HttpPostRequestDecoder decoder =
+                new HttpPostRequestDecoder(req, -1, HttpPostRequestDecoder.DEFAULT_MAX_BUFFERED_BYTES);
 
         try {
-            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(new byte[16 * 1024 + 1])));
+            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(
+                    new byte[HttpPostRequestDecoder.DEFAULT_MAX_BUFFERED_BYTES + 1])));
             fail();
         } catch (ErrorDataDecoderException e) {
             assertEquals(TooLongFormFieldException.class, e.getClass());

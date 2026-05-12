@@ -42,9 +42,9 @@ import static io.netty.buffer.Unpooled.*;
  */
 public class HttpPostRequestDecoder {
 
-    static final int DEFAULT_MAX_FIELDS = 128;
+    static final int DEFAULT_MAX_FIELDS = 1024;
 
-    static final int DEFAULT_MAX_BUFFERED_BYTES = 1024;
+    static final int DEFAULT_MAX_BUFFERED_BYTES = 1048576;
 
     /**
      * Factory used to create InterfaceHttpData
