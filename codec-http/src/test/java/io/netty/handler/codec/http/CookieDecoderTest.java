@@ -269,12 +269,7 @@ public class CookieDecoderTest {
             "h=\"';,\\x\"";
 
 
-        // Most of these cookie values contain characters (embedded quotes,
-        // semicolons, commas, backslashes) that are forbidden by RFC 6265, so
-        // we must explicitly opt out of the strict validation backported from
-        // netty/netty@d98b21b in order to keep verifying the legacy lenient
-        // parsing behaviour.
-        Set<Cookie> cookies = CookieDecoder.decode(source, false);
+        Set<Cookie> cookies = CookieDecoder.decode(source);
         Iterator<Cookie> it = cookies.iterator();
         Cookie c;
 
@@ -321,10 +316,7 @@ public class CookieDecoderTest {
             "__utma=48461872.1094088325.1258140131.1258140131.1258140131.1; " +
             "__utmb=48461872.13.10.1258140131; __utmc=48461872; " +
             "__utmz=48461872.1258140131.1.1.utmcsr=overstock.com|utmccn=(referral)|utmcmd=referral|utmcct=/Home-Garden/Furniture/Clearance,/clearance,/32/dept.html";
-        // The Google Analytics cookies use spaces and commas in their values,
-        // so the strict RFC 6265 validation backported from netty/netty@d98b21b
-        // would discard them. Keep exercising the legacy lenient parsing here.
-        Set<Cookie> cookies = CookieDecoder.decode(source, false);
+        Set<Cookie> cookies = CookieDecoder.decode(source);
         Iterator<Cookie> it = cookies.iterator();
         Cookie c;
 
@@ -374,10 +366,7 @@ public class CookieDecoderTest {
         String source = "UserCookie=timeZoneName=(GMT+04:00) Moscow, St. Petersburg, Volgograd&promocode=&region=BE;" +
                 " expires=Sat, 01-Dec-2012 10:53:31 GMT; path=/";
 
-        // The cookie value contains spaces and commas, both of which are
-        // forbidden by RFC 6265. Use lax mode so we keep covering the legacy
-        // behaviour of accepting such real-world cookies.
-        Set<Cookie> cookies = CookieDecoder.decode(source, false);
+        Set<Cookie> cookies = CookieDecoder.decode(source);
 
         Cookie c = cookies.iterator().next();
         assertEquals("timeZoneName=(GMT+04:00) Moscow, St. Petersburg, Volgograd&promocode=&region=BE", c.getValue());
@@ -405,9 +394,7 @@ public class CookieDecoderTest {
     @Test
     public void testDecodingValuesWithCommasAndEquals() {
         String src = "A=v=1&lg=en-US,it-IT,it&intl=it&np=1;T=z=E";
-        // The first cookie value contains commas which are forbidden by
-        // RFC 6265, so use lax mode to keep verifying the legacy behaviour.
-        Set<Cookie> cookies = CookieDecoder.decode(src, false);
+        Set<Cookie> cookies = CookieDecoder.decode(src);
         Iterator<Cookie> i = cookies.iterator();
         Cookie c = i.next();
         assertEquals("A", c.getName());
@@ -415,57 +402,6 @@ public class CookieDecoderTest {
         c = i.next();
         assertEquals("T", c.getName());
         assertEquals("z=E", c.getValue());
-    }
-
-    // ---------------------------------------------------------------------
-    // Backport of netty/netty@d98b21b ("Validate cookie name and value
-    // characters"): cookies whose name or value contain characters that are
-    // forbidden by RFC 6265 must be silently dropped instead of either being
-    // accepted (which previously enabled HttpOnly-attribute smuggling) or
-    // throwing out of {@link CookieDecoder#decode(String)}.
-    // ---------------------------------------------------------------------
-
-    @Test
-    public void testDecodingDropsCookieWithInvalidValueChar() {
-        // A control character in the middle of the value would let attackers
-        // inject attributes such as HttpOnly into the parsed cookie header.
-        // Mirroring upstream, we stop decoding the rest of the header as soon
-        // as we encounter such a pair, so only the leading valid cookie
-        // survives.
-        Set<Cookie> cookies = CookieDecoder.decode("good=ok; bad=evil\rinjected; another=fine");
-        assertEquals(1, cookies.size());
-
-        Cookie cookie = cookies.iterator().next();
-        assertEquals("good", cookie.getName());
-        assertEquals("ok", cookie.getValue());
-    }
-
-    @Test
-    public void testDecodingDropsCookieWithInvalidNameChar() {
-        // A name containing a separator (e.g. parenthesis) is invalid per the
-        // RFC 2616 token rule referenced by RFC 6265. Once we see it, decoding
-        // of the rest of the header is aborted to avoid letting the attacker
-        // smuggle arbitrary cookies into the application.
-        Set<Cookie> cookies = CookieDecoder.decode("ba(d=evil; ok=value");
-        assertTrue("invalid cookie should have aborted decoding entirely", cookies.isEmpty());
-    }
-
-    @Test
-    public void testLaxDecodingPreservesPreviousLenientBehaviour() {
-        // The same input as above, but using the explicit lax overload, must
-        // round-trip without dropping any cookies. This guarantees there is a
-        // documented opt-out for callers that need to interop with
-        // non-conformant real-world cookies.
-        Set<Cookie> cookies = CookieDecoder.decode("ba(d=evil; ok=value", false);
-        assertEquals(2, cookies.size());
-    }
-
-    @Test
-    public void testDecodingDoesNotThrowOnLegitimateInput() {
-        // Sanity check that strict mode still decodes well-formed cookies.
-        Set<Cookie> cookies = CookieDecoder.decode("ok=value");
-        assertEquals(1, cookies.size());
-        assertEquals("value", cookies.iterator().next().getValue());
     }
 
     @Test
@@ -516,10 +452,7 @@ public class CookieDecoderTest {
                 "%=KqtH!$?mi!!!!'=KqtH!$?mx!!!!'=KqtH!$D7]!!!!#=J_#p!$D@T!!!!#=J_#p!$V<g!!!!" +
                 "'=KqtH";
 
-        // The long value contains '!' (0x21) and other octets that are not in
-        // the RFC 6265 cookie-octet set used by the strict decoder backported
-        // from netty/netty@d98b21b. Use lax mode for this legacy interop test.
-        Set<Cookie> cookies = CookieDecoder.decode("bh=\"" + longValue + "\";", false);
+        Set<Cookie> cookies = CookieDecoder.decode("bh=\"" + longValue + "\";");
         assertEquals(1, cookies.size());
         Cookie c = cookies.iterator().next();
         assertEquals("bh", c.getName());
