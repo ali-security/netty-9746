@@ -91,6 +91,45 @@ public class HttpMessageDecoderTest {
     // The other test cases (testMultipleContentLengthHeaders*) verify the multiple Content-Length
     // protection is working correctly.
 
+    @Test
+    public void testContentLengthHeaderWithPositiveSign() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: +1\r\n\r\n" +
+                "b";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testContentLengthHeaderWithNegativeSign() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: -1\r\n\r\n";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testContentLengthHeaderWithNegativeValue() {
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: -10\r\n\r\n";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testMultipleContentLengthHeadersSameValue() {
+        // When allowDuplicateContentLengths is false (default), even identical values should be rejected
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 0\r\n" +
+                "Content-Length: 0\r\n\r\n";
+        testInvalidHeaders0(requestStr);
+    }
+
+    @Test
+    public void testMultipleContentLengthHeadersSameValueWithComma() {
+        // When allowDuplicateContentLengths is false (default), even identical comma-separated values should be rejected
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 0, 0\r\n\r\n";
+        testInvalidHeaders0(requestStr);
+    }
+
     private static void testInvalidHeaders0(String requestStr) {
         EmbeddedByteChannel channel = new EmbeddedByteChannel(new HttpRequestDecoder());
         try {
