@@ -784,9 +784,16 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
         }
 
         for (colonEnd = nameEnd; colonEnd < length; colonEnd ++) {
-            if (sb.charAt(colonEnd) == ':') {
+            char ch = sb.charAt(colonEnd);
+            if (ch == ':') {
                 colonEnd ++;
                 break;
+            } else if (!isOWS(ch)) {
+                // Only OWS (SP / HTAB) is allowed between the header name
+                // and the colon. See GHSA-wx5j-54mm-rqqq and RFC 7230 3.2.4.
+                throw new IllegalArgumentException(
+                        "Invalid separator, only a single space or horizontal tab allowed," +
+                        " but received a '" + ch + "' (0x" + Integer.toHexString(ch) + ")");
             }
         }
 
@@ -806,13 +813,23 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
     }
 
     private static int findNonWhitespace(String sb, int offset) {
-        int result;
-        for (result = offset; result < sb.length(); result ++) {
-            if (!Character.isWhitespace(sb.charAt(result))) {
-                break;
+        for (int result = offset; result < sb.length(); result ++) {
+            char c = sb.charAt(result);
+            if (!Character.isWhitespace(c)) {
+                return result;
+            } else if (!isOWS(c)) {
+                // Only OWS (SP / HTAB) is allowed around a header name.
+                // See GHSA-wx5j-54mm-rqqq and RFC 7230 section 3.2.3.
+                throw new IllegalArgumentException(
+                        "Invalid separator, only a single space or horizontal tab allowed," +
+                        " but received a '" + c + "' (0x" + Integer.toHexString(c) + ")");
             }
         }
-        return result;
+        return sb.length();
+    }
+
+    private static boolean isOWS(char c) {
+        return c == ' ' || c == 0x09;
     }
 
     private static int findWhitespace(String sb, int offset) {
