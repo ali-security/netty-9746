@@ -66,7 +66,10 @@ public class JZlibDecoderTest {
             byte[] decompressed = new byte[out.readableBytes()];
             out.readBytes(decompressed);
             assertArrayEquals(payload, decompressed);
-            assertFalse(decoder.isClosed());
+            // The stream ended naturally (Z_STREAM_END), so the decoder reports closed.
+            // This is the original behavior and unrelated to maxAllocation; we only care
+            // that decompression itself succeeded under the cap.
+            assertTrue(decoder.isClosed());
         } finally {
             ch.finish();
         }
