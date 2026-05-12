@@ -109,6 +109,11 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
     private long chunkSize;
     private int headerSize;
     private int contentRead;
+    // Number of leading control/whitespace characters that have been skipped while looking for the
+    // next initial line. Tracked across decode invocations to enforce the {@code maxInitialLineLength}
+    // budget and prevent denial-of-service attacks that send an unbounded run of control characters
+    // (see https://github.com/netty/netty/issues/10111).
+    private int skippedControlChars;
 
     /**
      * The internal state of {@link HttpMessageDecoder}.
@@ -185,19 +190,27 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
             try {
                 skipControlCharacters(buffer);
                 checkpoint(State.READ_INITIAL);
+            } catch (TooLongFrameException e) {
+                // The leading run of control characters by itself already exceeds
+                // maxInitialLineLength, surface as an invalid message instead of
+                // letting the exception escape the pipeline.
+                return invalidMessage(e);
             } finally {
                 checkpoint();
             }
         }
         case READ_INITIAL: try {
-            String[] initialLine = splitInitialLine(readLine(buffer, maxInitialLineLength));
+            String[] initialLine = splitInitialLine(
+                    readLine(buffer, maxInitialLineLength, skippedControlChars));
             if (initialLine.length < 3) {
                 // Invalid initial line - ignore.
+                skippedControlChars = 0;
                 checkpoint(State.SKIP_CONTROL_CHARS);
                 return null;
             }
 
             message = createMessage(initialLine);
+            skippedControlChars = 0;
             checkpoint(State.READ_HEADER);
         } catch (Exception e) {
             return invalidMessage(e);
@@ -462,6 +475,7 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
         }
         this.message = null;
 
+        skippedControlChars = 0;
         checkpoint(State.SKIP_CONTROL_CHARS);
         return message;
     }
@@ -484,13 +498,20 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
         return chunk;
     }
 
-    private static void skipControlCharacters(ByteBuf buffer) {
+    private void skipControlCharacters(ByteBuf buffer) {
         for (;;) {
             char c = (char) buffer.readUnsignedByte();
             if (!Character.isISOControl(c) &&
                 !Character.isWhitespace(c)) {
                 buffer.readerIndex(buffer.readerIndex() - 1);
                 break;
+            }
+            // Count the skipped char against the initial line budget so that an
+            // unbounded run of control characters cannot keep the decoder busy
+            // forever. See https://github.com/netty/netty/issues/10111.
+            if (++skippedControlChars > maxInitialLineLength) {
+                throw new TooLongFrameException(
+                        "An HTTP line is larger than " + maxInitialLineLength + " bytes.");
             }
         }
     }
@@ -712,8 +733,19 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
     }
 
     private static String readLine(ByteBuf buffer, int maxLineLength) {
+        return readLine(buffer, maxLineLength, 0);
+    }
+
+    /**
+     * Reads a single CRLF/LF-terminated line from {@code buffer}, enforcing that the total number
+     * of consumed bytes (including the {@code initialLength} already accounted for by the caller)
+     * does not exceed {@code maxLineLength}. The {@code initialLength} hook is used by the initial
+     * line decoder so that any leading control characters skipped by
+     * {@link #skipControlCharacters(ByteBuf)} share the same budget as the initial line itself.
+     */
+    private static String readLine(ByteBuf buffer, int maxLineLength, int initialLength) {
         StringBuilder sb = new StringBuilder(64);
-        int lineLength = 0;
+        int lineLength = initialLength;
         while (true) {
             byte nextByte = buffer.readByte();
             if (nextByte == HttpConstants.CR) {
