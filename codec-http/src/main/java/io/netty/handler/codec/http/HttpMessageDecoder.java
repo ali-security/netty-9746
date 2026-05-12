@@ -561,12 +561,56 @@ public abstract class HttpMessageDecoder extends ReplayingDecoder<Object, HttpMe
 
         State nextState;
 
+        if (HttpVersion.HTTP_1_1.equals(message.getProtocolVersion())) {
+            List<String> contentLengthHeaders = message.getHeaders(HttpHeaders.Names.CONTENT_LENGTH);
+            if (contentLengthHeaders.size() > 1) {
+                // Guard against multiple Content-Length headers as stated in
+                // https://tools.ietf.org/html/rfc7230#section-3.3.2:
+                //
+                // If a message is received that has multiple Content-Length header
+                //   fields with field-values consisting of the same decimal value, or a
+                //   single Content-Length header field with a field value containing a
+                //   list of identical decimal values (e.g., "Content-Length: 42, 42"),
+                //   indicating that duplicate Content-Length header fields have been
+                //   generated or combined by an upstream message processor, then the
+                //   recipient MUST either reject the message as invalid or replace the
+                //   duplicated field-values with a single valid Content-Length field
+                //   containing that decimal value prior to determining the message body
+                //   length or forwarding the message.
+                throw new IllegalArgumentException("Multiple Content-Length headers found");
+            } else if (contentLengthHeaders.size() == 1) {
+                // Also check for comma-separated values within a single header
+                String contentLength = contentLengthHeaders.get(0);
+                if (contentLength != null && contentLength.indexOf(',') >= 0) {
+                    throw new IllegalArgumentException("Multiple Content-Length headers found");
+                }
+            }
+        }
+
         if (isContentAlwaysEmpty(message)) {
             message.setTransferEncoding(HttpTransferEncoding.SINGLE);
             nextState = State.SKIP_CONTROL_CHARS;
         } else if (HttpCodecUtil.isTransferEncodingChunked(message)) {
             message.setTransferEncoding(HttpTransferEncoding.CHUNKED);
             nextState = State.READ_CHUNK_SIZE;
+            // See https://tools.ietf.org/html/rfc7230#section-3.3.3
+            //
+            //       If a message is received with both a Transfer-Encoding and a
+            //       Content-Length header field, the Transfer-Encoding overrides the
+            //       Content-Length.  Such a message might indicate an attempt to
+            //       perform request smuggling (Section 9.5) or response splitting
+            //       (Section 9.4) and ought to be handled as an error.  A sender MUST
+            //       remove the received Content-Length field prior to forwarding such
+            //       a message downstream.
+            //
+            // This is also what http_parser does:
+            // https://github.com/nodejs/http-parser/blob/v2.9.2/http_parser.c#L1769
+            if (message.containsHeader(HttpHeaders.Names.CONTENT_LENGTH) &&
+                    HttpVersion.HTTP_1_1.equals(message.getProtocolVersion())) {
+                throw new IllegalArgumentException(
+                        "Both 'Content-Length: " + message.getHeader(HttpHeaders.Names.CONTENT_LENGTH)
+                        + "' and 'Transfer-Encoding: chunked' found");
+            }
         } else if (HttpHeaders.getContentLength(message, -1) >= 0) {
             nextState = State.READ_FIXED_LENGTH_CONTENT;
         } else {
