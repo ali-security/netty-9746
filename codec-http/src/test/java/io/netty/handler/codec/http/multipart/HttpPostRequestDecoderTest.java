@@ -15,7 +15,6 @@
  */
 package io.netty.handler.codec.http.multipart;
 
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultHttpChunk;
 import io.netty.handler.codec.http.DefaultHttpRequest;
@@ -30,7 +29,6 @@ import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.TooManyFormF
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class HttpPostRequestDecoderTest {
@@ -45,47 +43,65 @@ public class HttpPostRequestDecoderTest {
     public void testTooManyFormFieldsPostStandardDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
 
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, 1024, -1);
+        int maxFields = 8;
+        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
 
-        int num = 0;
-        while (true) {
-            try {
-                decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer("foo=bar&".getBytes())));
-            } catch (ErrorDataDecoderException e) {
-                assertEquals(TooManyFormFieldsException.class, e.getClass());
-                break;
-            }
-            assertTrue(num++ < 1024);
+        StringBuilder body = new StringBuilder();
+        for (int i = 0; i <= maxFields; i++) {
+            body.append("k").append(i).append("=v&");
         }
-        assertEquals(1024, num);
+
+        try {
+            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(body.toString().getBytes())));
+            fail();
+        } catch (ErrorDataDecoderException e) {
+            assertEquals(TooManyFormFieldsException.class, e.getClass());
+        }
+    }
+
+    @Test
+    public void testStandardDecoderAcceptsUpToMaxFields() throws Exception {
+        HttpRequest req = newChunkedRequest();
+
+        int maxFields = 8;
+        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
+
+        StringBuilder body = new StringBuilder();
+        for (int i = 0; i < maxFields; i++) {
+            body.append("k").append(i).append("=v&");
+        }
+
+        decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(body.toString().getBytes())));
     }
 
     @Test
     public void testTooManyFormFieldsPostMultipartDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
-        req.addHeader("Content-Type", "multipart/form-data;boundary=be38b42a9ad2713f");
+        req.addHeader("Content-Type", "multipart/form-data; boundary=be38b42a9ad2713f");
 
-        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, 1024, -1);
-        decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer("--be38b42a9ad2713f\n".getBytes())));
+        int maxFields = 4;
+        HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, maxFields, -1);
 
-        int num = 0;
-        while (true) {
-            try {
-                byte[] bodyBytes = ("content-disposition: form-data; name=\"title\"\n" +
-                        "content-length: 10\n" +
-                        "content-type: text/plain; charset=UTF-8\n" +
-                        "\n" +
-                        "bar-stream\n" +
-                        "--be38b42a9ad2713f\n").getBytes();
-                ByteBuf content = Unpooled.wrappedBuffer(bodyBytes);
-                decoder.offer(new DefaultHttpChunk(content));
-            } catch (ErrorDataDecoderException e) {
-                assertEquals(TooManyFormFieldsException.class, e.getClass());
-                break;
+        StringBuilder body = new StringBuilder();
+        body.append("--be38b42a9ad2713f\r\n");
+        for (int i = 0; i <= maxFields; i++) {
+            body.append("Content-Disposition: form-data; name=\"k").append(i).append("\"\r\n")
+                .append("\r\n")
+                .append("v").append(i).append("\r\n")
+                .append("--be38b42a9ad2713f");
+            if (i == maxFields) {
+                body.append("--\r\n");
+            } else {
+                body.append("\r\n");
             }
-            assertTrue(num++ < 1024);
         }
-        assertEquals(1024, num);
+
+        try {
+            decoder.offer(new DefaultHttpChunk(Unpooled.wrappedBuffer(body.toString().getBytes())));
+            fail();
+        } catch (ErrorDataDecoderException e) {
+            assertEquals(TooManyFormFieldsException.class, e.getClass());
+        }
     }
 
     @Test
@@ -114,7 +130,7 @@ public class HttpPostRequestDecoderTest {
     @Test
     public void testTooLongFormFieldMultipartDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
-        req.addHeader("Content-Type", "multipart/form-data;boundary=be38b42a9ad2713f");
+        req.addHeader("Content-Type", "multipart/form-data; boundary=be38b42a9ad2713f");
 
         HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, -1, 16 * 1024);
 
@@ -129,14 +145,15 @@ public class HttpPostRequestDecoderTest {
     @Test
     public void testFieldGreaterThanMaxBufferedBytesMultipartDecoder() throws Exception {
         HttpRequest req = newChunkedRequest();
-        req.addHeader("Content-Type", "multipart/form-data;boundary=be38b42a9ad2713f");
+        req.addHeader("Content-Type", "multipart/form-data; boundary=be38b42a9ad2713f");
 
-        byte[] bodyBytes = ("content-disposition: form-data; name=\"title\"\n" +
-                "content-length: 10\n" +
-                "content-type: text/plain; charset=UTF-8\n" +
-                "\n" +
-                "bar-stream\n" +
-                "--be38b42a9ad2713f\n").getBytes();
+        byte[] bodyBytes = ("--be38b42a9ad2713f\r\n" +
+                "Content-Disposition: form-data; name=\"title\"\r\n" +
+                "Content-Length: 10\r\n" +
+                "Content-Type: text/plain; charset=UTF-8\r\n" +
+                "\r\n" +
+                "bar-stream\r\n" +
+                "--be38b42a9ad2713f--\r\n").getBytes();
 
         HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(req, -1, bodyBytes.length - 1);
 
