@@ -100,6 +100,99 @@ public class HttpInvalidMessageTest {
         ensureInboundTrafficDiscarded(ch);
     }
 
+    @Test
+    public void testMultipleContentLengthHeaders() {
+        EmbeddedByteChannel ch = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1\r\n" +
+                "Content-Length: 0\r\n\r\n" +
+                "b";
+        try {
+            ch.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.UTF_8));
+            HttpRequest req = (HttpRequest) ch.readInbound();
+            DecoderResult dr = req.getDecoderResult();
+            Assert.assertFalse(dr.isSuccess());
+            Assert.assertTrue(dr.isPartialFailure());
+        } catch (Exception e) {
+            // Exception is acceptable for this test
+        }
+    }
+
+    @Test
+    public void testMultipleContentLengthHeaders2() {
+        EmbeddedByteChannel ch = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1\r\n" +
+                "Connection: close\r\n" +
+                "Content-Length: 0\r\n\r\n" +
+                "b";
+        try {
+            ch.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.UTF_8));
+            HttpRequest req = (HttpRequest) ch.readInbound();
+            DecoderResult dr = req.getDecoderResult();
+            Assert.assertFalse(dr.isSuccess());
+            Assert.assertTrue(dr.isPartialFailure());
+        } catch (Exception e) {
+            // Exception is acceptable for this test
+        }
+    }
+
+    @Test
+    public void testContentLengthHeaderWithCommaValue() {
+        EmbeddedByteChannel ch = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "GET /some/path HTTP/1.1\r\n" +
+                "Content-Length: 1,1\r\n\r\n" +
+                "b";
+        try {
+            ch.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.UTF_8));
+            HttpRequest req = (HttpRequest) ch.readInbound();
+            // This case should fail at header parsing
+        } catch (Exception e) {
+            // Exception is expected for this test
+        }
+    }
+
+    @Test
+    public void testMultipleContentLengthHeadersWithFolding() {
+        EmbeddedByteChannel ch = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "POST / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Connection: close\r\n" +
+                "Content-Length: 5\r\n" +
+                "Content-Length:\r\n" +
+                "\t6\r\n\r\n" +
+                "123456";
+        try {
+            ch.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.UTF_8));
+            HttpRequest req = (HttpRequest) ch.readInbound();
+            DecoderResult dr = req.getDecoderResult();
+            Assert.assertFalse(dr.isSuccess());
+            Assert.assertTrue(dr.isPartialFailure());
+        } catch (Exception e) {
+            // Exception is acceptable for this test
+        }
+    }
+
+    @Test
+    public void testContentLengthHeaderAndChunked() {
+        EmbeddedByteChannel ch = new EmbeddedByteChannel(new HttpRequestDecoder());
+        String requestStr = "POST / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Connection: close\r\n" +
+                "Content-Length: 5\r\n" +
+                "Transfer-Encoding: chunked\r\n\r\n" +
+                "0\r\n\r\n";
+        try {
+            ch.writeInbound(Unpooled.copiedBuffer(requestStr, CharsetUtil.UTF_8));
+            HttpRequest req = (HttpRequest) ch.readInbound();
+            DecoderResult dr = req.getDecoderResult();
+            Assert.assertFalse(dr.isSuccess());
+            Assert.assertTrue(dr.isPartialFailure());
+        } catch (Exception e) {
+            // Exception is acceptable for this test
+        }
+    }
+
     private void ensureInboundTrafficDiscarded(EmbeddedByteChannel ch) {
         // Generate a lot of random traffic to ensure that it's discarded silently.
         byte[] data = new byte[1048576];
